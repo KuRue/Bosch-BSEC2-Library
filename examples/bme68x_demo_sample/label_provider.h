@@ -31,8 +31,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * @file	label_provider.h
- * @date	11 April 2023
- * @version	2.0.9
+ * @date	17 January 2023
+ * @version	2.0.6
  * 
  * @brief	Header file for the label provider
  * 
