@@ -31,8 +31,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * @file	bsec_datalogger.h
- * @date	17 January 2023
- * @version	2.0.6
+ * @date	22 June 2022
+ * @version	1.5.5
  * 
  * @brief	Header file for the bsec datalogger
  * 
@@ -47,12 +47,9 @@
 #include <SdFat.h>
 #include <RTClib.h>
 #include <base64.h>
-#include <ArduinoJson.h>
 #include "utils.h"
 #include "demo_app.h"
 #include "label_provider.h"
-
-#define COUNT_MAX_SIZE 2
 
 /*!
  * @brief Class library that holds functionality of the bsec datalogger
@@ -60,13 +57,10 @@
 class bsecDataLogger
 {
 private:
-	String _aiConfigName, _aiFileName, _bmeFileName, _labelFileName;
-	unsigned long _aiDataPos = 0, _bmeDataPos = 0;
-    int _bsecFileCounter = 1;
+	String _bsecConfigName, _bsecFileName;
+	unsigned long _bsecDataPos = 0;
+    int _fileCounter = 0;
 	bool _firstLine = false;
-	bsec_version_t _version;
-	bool _endOfLine = false;
-	String configString;
 	
 	/*!
 	 * @brief : This function creates a bsec output file
@@ -75,28 +69,10 @@ private:
 	 */
 	demoRetCode createBsecFile();
 
-	/*!
-	 * @brief	:	This function creates a bme68x datalogger output file
-	 * 
-	 * @param[in] sensorNum	:	Selected sensor number
-	 *
-	 * @return  bosch error code
-	 */
-	demoRetCode createRawDataFile(uint8_t sensorNum);
-
-	/*!
-	 * @brief : Fuction that parses the config data from aiConfig file and creates config header and body
-	 *
-	 * @param[in] sensorNum	:	Selected sensor number
-	 * 
-	 * @return  bosch error code
-	 */
-	demoRetCode prepareConfigContent(uint8_t sensorNum);
-
 public:
-	/*!
-	* @brief structure which comprises sensor input and output data to write into SD card
-	*/
+/*!
+ * @brief structure which comprises sensor input and output data to write into SD card
+ */
     typedef struct
     {
 		/*! sensor number */
@@ -104,25 +80,29 @@ public:
     
     	/*! sensor Index */
 		uint32_t sensorId;
+    
+  		/*! sensor mode */
+		uint8_t sensorMode;
+    
+    	/*! bme68x data registers data */
+		bme68x_data inputData;
 	    
     	/*! bsec output structure*/
     	bsecOutputs outputs;
+    
+		/*! gas label */
+    	gasLabel label;
 	
     	/*! return code */
     	demoRetCode code;
 		
-		/*! start time since power on */
-    	uint32_t startTimeSincePowerOn;
+		/*! time since power on */
+    	uint32_t timeSincePowerOn;
 		
-		/*! end time since power on */
-    	uint32_t endTimeSincePowerOn;
-
-		/*! ground truth */
-		uint16_t groundTruth;
+		/*! rtc time */
+		uint32_t rtcTsp; 
 		
 	} SensorIoData;
-	
-	uint8_t scanCycles = 0;
 	
 	/*!
      * @brief :The constructor of the bsec_datalogger class
@@ -133,45 +113,22 @@ public:
 	/*!
 	 * @brief : This function configures the bsec datalogger using the provided bsec config string file.
 	 * 
-	 * @param[in] configName 	: sensor configuration file
-	 * @param[in] bsecVersion	: reference to bsec version
-	 * @param[in] sensorNum 	: selected sensor number
-	 * 
+	 * @param[in] configName : sensor configuration file
+     * 
      * @return  bosch error code
 	 */
-    demoRetCode begin(const String& configName, const bsec_version_t& bsecVersion, uint8_t sensorNum);
+    demoRetCode begin(const String& configName);
 
 	/*!
-	 * @brief : This function writes the bsec output to the current log file.
+	 * @brief : This function writes the block of bsec output to the current log file.
 	 * 
-	 * @param[in] buffData : reference to the buffered data
+	 * @param[in] buffData : array of structure SensorIoData
+     * @param[in] buffSize : size of a buffer
      * 
 	 * @return bosch error code
 	 */
 	
-    demoRetCode writeBsecOutput(SensorIoData& buffData);
-
-	/*!
-	 * @brief : This function writes the sensor data to the current log file.
-	 * 
-	 * @param[in] num 				: sensor number
-	 * @param[in] sensorId 			: pointer to sensor id, if NULL a null json object is inserted
-	 * @param[in] sensorMode		: pointer to sensor operation mode, if NULL a null json object is inserted
-	 * @param[in] bme68xData		: pointer to bme68x data, if NULL a null json object is inserted
-	 * @param[in] scanCycleIndex	: pointer to sensor scanning cycle index
-	 * @param[in] label 			: class label
-	 * @param[in] code 				: application return code
-     * 
-     * @return  bosch error code
-	 */
-    demoRetCode writeSensorData(const uint8_t* num, const uint32_t* sensorId, const bme68x_data* bme68xData, const uint32_t* scanCycleIndex, uint32_t groundTruth, demoRetCode code, SensorIoData& buffData);
-
-	/*!
-	 * @brief : This function creates a bme68x label information file with .bmelabelinfo extension
-	 * 
-     * @return  bosch error code
-	 */
-	demoRetCode createLabelInfoFile();
+    demoRetCode writeBsecOutput(SensorIoData buffData[], uint8_t buffSize);
 };
 
 #endif

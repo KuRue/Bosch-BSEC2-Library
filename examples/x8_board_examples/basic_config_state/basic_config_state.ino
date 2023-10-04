@@ -26,13 +26,15 @@
 #include <EEPROM.h>
 #include <bsec2.h>
 #include "commMux.h"
-/* For two class classification use configuration under config/FieldAir_HandSanitizer */
-#include "config/FieldAir_HandSanitizer/FieldAir_HandSanitizer.h"
+/* Configuration for two class classification used here
+ * For four class classification please use configuration under config/FieldAir_HandSanitizer_Onion_Cinnamon
+ */
+#include "config/Default_H2S_NonH2S/Default_H2S_NonH2S.h"
 
 /* Macros used */
 #define STATE_SAVE_PERIOD   UINT32_C(360 * 60 * 1000) /* 360 minutes - 4 times a day */
-/* Number of sensors to operate*/
-#define NUM_OF_SENS    8
+/* sensors are numbered 0-7 */
+#define SENS_NUM	0
 #define PANIC_LED	LED_BUILTIN
 #define ERROR_DUR   1000
 
@@ -75,13 +77,11 @@ bool loadState(Bsec2 bsec);
 bool saveState(Bsec2 bsec);
 
 /* Create an object of the class Bsec2 */
-Bsec2 envSensor[NUM_OF_SENS];
-commMux commConfig[NUM_OF_SENS];
-uint8_t bsecMemBlock[NUM_OF_SENS][BSEC_INSTANCE_SIZE];
-uint8_t sensor = 0;
+Bsec2 envSensor;
+commMux commConfig;
 static uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE];
 /* Gas estimate names will be according to the configuration classes used */
-const String gasName[] = { "Field Air", "Hand sanitizer", "Undefined 3", "Undefined 4"};
+const String gasName[] = { "H2S", "NonH2S", "Undefined 3", "Undefined 4"};
 
 /* Entry point for the example */
 void setup(void)
@@ -93,6 +93,8 @@ void setup(void)
             BSEC_OUTPUT_RAW_HUMIDITY,
             BSEC_OUTPUT_RAW_GAS,
             BSEC_OUTPUT_RAW_GAS_INDEX,
+            BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
+            BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
             BSEC_OUTPUT_GAS_ESTIMATE_1,
             BSEC_OUTPUT_GAS_ESTIMATE_2,
             BSEC_OUTPUT_GAS_ESTIMATE_3,
@@ -105,52 +107,45 @@ void setup(void)
     commMuxBegin(Wire, SPI);
     pinMode(PANIC_LED, OUTPUT);
 	delay(100);
-     /* Valid for boards with USB-COM. Wait until the port is open */
-    while (!Serial) delay(10);
-
-    for (uint8_t i = 0; i < NUM_OF_SENS; i++)
-    {
-        /* Sets the Communication interface for the given sensor */
-        commConfig[i] = commMuxSetConfig(Wire, SPI, i, commConfig[i]);
     
-         /* Assigning a chunk of memory block to the bsecInstance */
-         envSensor[i].allocateMemory(bsecMemBlock[i]);
+    /* Sets the Communication interface for the given sensor */
+    commConfig = commMuxSetConfig(Wire, SPI, SENS_NUM, commConfig);
    
-        /* Initialize the library and interfaces */
-        if (!envSensor[i].begin(BME68X_SPI_INTF, commMuxRead, commMuxWrite, commMuxDelay, &commConfig[i]))
-        {
-            checkBsecStatus (envSensor[i]);
-        }
-
-        /* Load the configuration string that stores information on how to classify the detected gas */
-        if (!envSensor[i].setConfig(FieldAir_HandSanitizer_config))
-        {
-            checkBsecStatus (envSensor[i]);
-        }
-
-        /* Copy state from the EEPROM to the algorithm */
-        if (!loadState(envSensor[i]))
-        {
-            checkBsecStatus (envSensor[i]);
-        }
-
-        /* Subscribe for the desired BSEC2 outputs */
-        if (!envSensor[i].updateSubscription(sensorList, ARRAY_LEN(sensorList), BSEC_SAMPLE_RATE_SCAN))
-        {
-            checkBsecStatus (envSensor[i]);
-        }
-
-        /* Whenever new data is available call the newDataCallback function */
-        envSensor[i].attachCallback(newDataCallback);
-
-        updateBsecState(envSensor[i]);
+    /* Valid for boards with USB-COM. Wait until the port is open */
+    while (!Serial) delay(10);
+    
+    /* Initialize the library and interfaces */
+    if (!envSensor.begin(BME68X_SPI_INTF, commMuxRead, commMuxWrite, commMuxDelay, &commConfig))
+    {
+        checkBsecStatus (envSensor);
     }
 
+    /* Load the configuration string that stores information on how to classify the detected gas */
+    if (!envSensor.setConfig(Default_H2S_NonH2S_config))
+    {
+        checkBsecStatus (envSensor);
+    }
+
+    /* Copy state from the EEPROM to the algorithm */
+    if (!loadState(envSensor))
+    {
+        checkBsecStatus (envSensor);
+    }
+
+    /* Subscribe for the desired BSEC2 outputs */
+    if (!envSensor.updateSubscription(sensorList, ARRAY_LEN(sensorList), BSEC_SAMPLE_RATE_SCAN))
+    {
+        checkBsecStatus (envSensor);
+    }
+
+    /* Whenever new data is available call the newDataCallback function */
+    envSensor.attachCallback(newDataCallback);
+
     Serial.println("\nBSEC library version " + \
-            String(envSensor[0].version.major) + "." \
-            + String(envSensor[0].version.minor) + "." \
-            + String(envSensor[0].version.major_bugfix) + "." \
-            + String(envSensor[0].version.minor_bugfix));
+            String(envSensor.version.major) + "." \
+            + String(envSensor.version.minor) + "." \
+            + String(envSensor.version.major_bugfix) + "." \
+            + String(envSensor.version.minor_bugfix));
 }
 
 /* Function that is looped forever */
@@ -160,12 +155,8 @@ void loop(void)
      * check if it is time to read new data from the sensor
      * and process it.
      */
-    for (sensor = 0; sensor < NUM_OF_SENS; sensor++)
-    {
-        if (!envSensor[sensor].run())
-        {
-         checkBsecStatus(envSensor[sensor]);
-        }
+    if (!envSensor.run()) {
+        checkBsecStatus (envSensor);
     }
 }
 
@@ -201,8 +192,7 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
     if (!outputs.nOutputs)
         return;
 
-    Serial.println("BSEC outputs:\n\tsensor num = " + String(sensor));
-    Serial.println("\ttimestamp = " + String((int) (outputs.output[0].time_stamp / INT64_C(1000000))));
+    Serial.println("BSEC outputs:\n\ttimestamp = " + String((int) (outputs.output[0].time_stamp / INT64_C(1000000))));
     for (uint8_t i = 0; i < outputs.nOutputs; i++)
     {
         const bsecData output  = outputs.output[i];
@@ -246,6 +236,7 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
         }
     }
 
+    updateBsecState(envSensor);
 }
 
 void checkBsecStatus(Bsec2 bsec)
